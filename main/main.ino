@@ -7,12 +7,19 @@
 #include "display.h"
 #include "ble.h"
 #include "algo.h"
+#if BOARD == BOARD_ESP32_FEATHER
+#include "Adafruit_MAX1704X.h"
+#endif
   
 TempSensor tempSensor;
 DistSensor distSensor;
 uint8_t mirrorTire = 0;
 char wheelPos[] = "  ";  // Wheel position for Tire A
 char deviceNameSuffix[] = "  ";
+
+#if BOARD == BOARD_ESP32_FEATHER
+Adafruit_MAX17048 maxlipo;
+#endif
 
 #if BOARD == BOARD_ESP32_LOLIND32
   #if FIS_SENSOR2_PRESENT == 1
@@ -52,7 +59,10 @@ void updateRefreshRate(void);
 
 void setup(){
   Serial.begin(115200);
-  while (!Serial); // Wait for Serial
+  delay(1000);
+  if (Serial){
+    delay(3000); // Wait for Serial
+  }
   Serial.printf("\nBegin startup. Arduino version: %d\n", ARDUINO);
 
 #if BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
@@ -78,7 +88,6 @@ void setup(){
   pinMode(GPIOUNUSEDA2, INPUT);
 #endif
 
-  updateBattery();
   updateWheelPos();
   char bleName[32] = "RejsaRubber";
   sprintf(bleName, "%s%s\0",bleName, deviceNameSuffix); // Extend bleName[] with the suffix
@@ -155,6 +164,18 @@ void setup(){
     pinMode(GPIOSCL2, INPUT);
   #endif
 #endif
+
+#if BOARD == BOARD_ESP32_FEATHER
+  debug(F("\nStarting battery monitor:MAX17048"));
+
+  while (!maxlipo.begin()) {
+    debug(F("Couldnt find Adafruit MAX17048?\nMake sure a battery is plugged in!\n"));
+    delay(2000);
+  }
+  debug("Found MAX17048 with Chip ID: 0x%x.\n",maxlipo.getChipID()); 
+  delay(2000);
+#endif
+updateBattery();
 
 // display
 #if DISP_DEVICE != DISP_NONE
@@ -343,7 +364,11 @@ void blinkOnTempChange(int16_t tempnew) {
   if (GPIOLEDTEMP > 0) {
     static int16_t tempold = 0;
     if (tempold != tempnew) {
+#if (BOARD == BOARD_ESP32_FEATHER)      
+      neopixelWrite(RGB_BUILTIN,0,0,255);
+#else
       digitalWrite(GPIOLEDTEMP, HIGH);
+#endif
       delay(3);
       digitalWrite(GPIOLEDTEMP, LOW);
     }
@@ -354,7 +379,7 @@ void blinkOnTempChange(int16_t tempnew) {
 
 int getVbat(void) {
   double adcRead=0;
-#if BOARD == BOARD_ESP32_FEATHER || BOARD_ESP32_LOLIND32 // Compensation for ESP32's crappy ADC -> https://bitbucket.org/Blackneron/esp32_adc/src/master/
+#if BOARD == BOARD_ESP32_LOLIND32 // Compensation for ESP32's crappy ADC -> https://bitbucket.org/Blackneron/esp32_adc/src/master/
   const double f1 = 1.7111361460487501e+001;
   const double f2 = 4.2319467860421662e+000;
   const double f3 = -1.9077375643188468e-002;
@@ -389,6 +414,26 @@ int getVbat(void) {
 }
 
 void updateBattery(void) {
+#if (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_NRF52_FEATHER)
   vBattery = getVbat();
   lipoPercentage = lipoPercent(vBattery);
+
+#elif (BOARD == BOARD_ESP32_FEATHER)
+  float f_mVolt;
+  f_mVolt = maxlipo.cellVoltage() * 1000.0; // V to mV
+  if (isnan(f_mVolt)) {
+    return;
+  }
+
+  vBattery = (int)f_mVolt;
+  lipoPercentage = maxlipo.cellPercent();
+  if(lipoPercentage < 0)
+  {
+    lipoPercentage = 0;
+  }
+  else if( 100.0 < lipoPercentage)
+  {
+    lipoPercentage = 100.0;
+  }
+#endif
 }

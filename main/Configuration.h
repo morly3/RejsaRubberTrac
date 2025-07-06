@@ -8,12 +8,12 @@
 
 
 // -- Basic device configuration, see Constants.h
-#define BOARD              BOARD_ESP32_FEATHER
+#define BOARD              BOARD_NRF52_FEATHER
 #define DISP_DEVICE        DISP_NONE
 
 // -- Distance Sensor related settings
 
-#define DIST_SENSOR        DIST_NONE
+#define DIST_SENSOR        DIST_VL53L0X
 #define DIST_SENSOR2       DIST_NONE // Device to use for second sensor on second I2C hardware bus (ESP32 only), see Constants.h
 
 #define DISTANCEOFFSET 0         // Write distance to tire in mm here to get logged distance data value centered around zero
@@ -28,7 +28,7 @@
 #else
   #define FIS_SENSOR2_PRESENT 0
 #endif
-#define FIS_REFRESHRATE    16            // Sets the FIS refresh rate in Hz, MLX90640 should be 4 with nRF52, MLX90621 works at 16Hz
+#define FIS_REFRESHRATE    8            // Sets the FIS refresh rate in Hz. MLX90640 should be max 8 Hz with nRF52, max 16 Hz with ESP32-S3
 
 #if FIS_SENSOR == FIS_MLX90621
   #define IGNORE_TOP_ROWS    0     // Ignore this many rows from the top of the sensor
@@ -102,22 +102,22 @@
   #define GPIOMIRR2           26  // GPIO pin: Mirr B
   #define GPIOUNUSEDA2        17  // GPIO pin: Unused A2 (NOTE: works only on non-Pro LOLIN D32, because pin is NC on Pro)
   #define GPIOUNUSEDB1        25  // GPIO pin: Unused B1
-#elif BOARD == BOARD_ESP32_FEATHER
-  #define MILLIVOLTFULLSCALE  3300
-  #define STEPSFULLSCALE      4096
-  #define BATRESISTORCOMP     2.100 // Compensation for a resistor voltage divider between battery and ADC input pin
+#elif BOARD == BOARD_ESP32_FEATHER  // dafruit ESP32-S3 Feather
+  #define MILLIVOLTFULLSCALE  -1
+  #define STEPSFULLSCALE      -1
+  #define BATRESISTORCOMP     -1
   #define VBAT_PIN            A13
-  #define GPIOLEDDIST         -1
-  #define GPIOLEDTEMP         -1
+  #define GPIOLEDDIST         LED_BUILTIN
+  #define GPIOLEDTEMP         RGB_BUILTIN
   #define GPIOSDA             SDA // set I2C bus GPIO pins to default pins
   #define GPIOSCL             SCL
   #define GPIOSDA2            -1 // second I2C bus only available with LOLIN D32-based PCB
   #define GPIOSCL2            -1
-  #define GPIODISTSENSORXSHUT 12  // GPIO pin number
-  #define GPIOCAR             28  // GPIO pin number
-  #define GPIOFRONT           29  // GPIO pin number
-  #define GPIOLEFT            13  // GPIO pin number
-  #define GPIOMIRR            14  // GPIO pin number
+  #define GPIODISTSENSORXSHUT SCK  // GPIO pin number (SCK/IO36 pin32)
+  #define GPIOCAR             T14  // GPIO pin number (A4/IO14 pin18)
+  #define GPIOFRONT           T8  // GPIO pin number (A5/IO8 pin12)
+  #define GPIOLEFT            MOSI  // GPIO pin number (MOSI/IO35 pin31)
+  #define GPIOMIRR            MISO  // GPIO pin number (MISO/IO37 pin33)
 #elif BOARD == BOARD_NRF52_FEATHER
   #define MILLIVOLTFULLSCALE  3600
   #define STEPSFULLSCALE      1024
@@ -129,11 +129,11 @@
   #define GPIOSCL             PIN_WIRE_SCL
   #define GPIOSDA2            -1 // second I2C bus only available for ESP32
   #define GPIOSCL2            -1
-  #define GPIODISTSENSORXSHUT 12  // GPIO pin number
-  #define GPIOCAR             28  // GPIO pin number
-  #define GPIOFRONT           29  // GPIO pin number
-  #define GPIOLEFT            13  // GPIO pin number
-  #define GPIOMIRR            14  // GPIO pin number
+  #define GPIODISTSENSORXSHUT 12  // GPIO pin number (SCK/P0.12 U1-26)
+  #define GPIOCAR             28  // GPIO pin number (A4/P0.28 U1-5)
+  #define GPIOFRONT           29  // GPIO pin number (A5/P0.29 U1-6)
+  #define GPIOLEFT            13  // GPIO pin number (MOSI/P0.13 U1-27)
+  #define GPIOMIRR            14  // GPIO pin number (MISO/P0.14 U1-28)
 #endif
 
 

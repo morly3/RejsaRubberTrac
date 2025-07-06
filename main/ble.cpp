@@ -1,5 +1,20 @@
 #include "ble.h"
 
+#if BOARD == BOARD_ESP32_FEATHER
+// Fix for some Android/iOS reconnection issues
+class MyServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    Serial.println("Client connected");
+  }
+
+  void onDisconnect(BLEServer* pServer) {
+    Serial.println("Client disconnected, restarting advertising");
+    delay(100);  // A short delay may help improve stability
+    BLEDevice::startAdvertising();
+  }
+};
+#endif
+
 BLDevice::BLDevice() { // We initialize a couple things in constructor
   datapackOne.distance = 0;
   datapackOne.protocol = PROTOCOL;
@@ -26,9 +41,10 @@ void BLDevice::setupDevice(char bleName[]) {
   Serial.print("Starting bluetooth with MAC address ");
 //  Serial.printBufferReverse(macaddr, 6, ':');
   Serial.println();
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD_ESP32_LOLIND32
+#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
   BLEDevice::init(bleName);
   mainServer = BLEDevice::createServer();
+  mainServer->setCallbacks(new MyServerCallbacks());  // Fix for some Android/iOS reconnection issues
 #endif
   Serial.printf("Device name: %s\n", bleName);
 
@@ -54,7 +70,7 @@ void BLDevice::setupMainService(void) {
   GATTthr.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
   GATTthr.setFixedLen(20);
   GATTthr.begin();
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD_ESP32_LOLIND32
+#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
   mainService = mainServer->createService(BLEUUID((uint16_t)0x1FF7));
   GATTone = mainService->createCharacteristic(BLEUUID((uint16_t)0x0001), BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY );
   GATTtwo = mainService->createCharacteristic(BLEUUID((uint16_t)0x0002), BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY );
@@ -78,11 +94,13 @@ void BLDevice::startAdvertising(void) {
   Bluefruit.Advertising.setInterval(32, 244); // in unit of 0.625 ms
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0); 
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD_ESP32_LOLIND32
+#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
   mainAdvertising = BLEDevice::getAdvertising();
   mainAdvertising->addServiceUUID(BLEUUID((uint16_t)0x1FF7));
   mainAdvertising->setScanResponse(false);
-  mainAdvertising->setMinPreferred(0x0);
+//  mainAdvertising->setMinPreferred(0x0);
+  mainAdvertising->setMinPreferred(0x06);  // Fix for some Android/iOS reconnection issues
+  mainAdvertising->setMaxPreferred(0x12);
   BLEDevice::startAdvertising();
 #endif
 }
@@ -112,7 +130,7 @@ void BLDevice::transmit(int16_t tempMeasurements[], uint8_t mirrorTire, int16_t 
   GATTone.notify(&datapackOne, sizeof(datapackOne));
   GATTtwo.notify(&datapackTwo, sizeof(datapackTwo));
   GATTthr.notify(&datapackThr, sizeof(datapackThr));
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD_ESP32_LOLIND32
+#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
   GATTone->setValue((uint8_t*)&datapackOne, sizeof(datapackOne));
   GATTtwo->setValue((uint8_t*)&datapackTwo, sizeof(datapackTwo));
   GATTthr->setValue((uint8_t*)&datapackThr, sizeof(datapackThr));
@@ -125,7 +143,7 @@ void BLDevice::transmit(int16_t tempMeasurements[], uint8_t mirrorTire, int16_t 
 boolean BLDevice::isConnected() {
 #if BOARD == BOARD_NRF52_FEATHER
   return Bluefruit.connected();
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD_ESP32_LOLIND32
+#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
   int32_t connectedCount;
   connectedCount = mainServer->getConnectedCount();
   return (connectedCount > 0);
