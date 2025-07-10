@@ -10,6 +10,7 @@
 // -- Basic device configuration, see Constants.h
 #define BOARD              BOARD_NRF52_FEATHER
 #define DISP_DEVICE        DISP_NONE
+#define STATUS_LED         STATUS_LED_RUNNING
 
 // -- Distance Sensor related settings
 

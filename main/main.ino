@@ -10,7 +10,7 @@
 #if BOARD == BOARD_ESP32_FEATHER
 #include "Adafruit_MAX1704X.h"
 #endif
-  
+
 TempSensor tempSensor;
 DistSensor distSensor;
 uint8_t mirrorTire = 0;
@@ -131,7 +131,7 @@ void setup(){
 #if BOARD == BOARD_ESP32_LOLIND32
   // I2C channel 2
   #if FIS_SENSOR2_PRESENT == 1
-  
+
     // TIRE 2 MIRRORED?
     if ((MIRRORTIRE2 == 1 || digitalRead(GPIOMIRR2) == 0)) {
       mirrorTire2 = 1;
@@ -139,7 +139,7 @@ void setup(){
     }
 
     Wire1.begin(GPIOSDA2,GPIOSCL2); // initialize I2C w/ I2C pins from config
-  
+
     #if DIST_SENSOR2 != DIST_NONE
       debug("Starting distance sensor 2 for %s...\n", wheelPos2);
       if (distSensor2.initialise(&Wire1, wheelPos2)) {
@@ -149,7 +149,7 @@ void setup(){
         debug("ERROR: Distance sensor 2 for %s not present.\n", wheelPos2);
       }
     #endif
-  
+
     debug("Starting temperature sensor 2 for %s...\n", wheelPos2);
     if (!tempSensor2.initialise(FIS_REFRESHRATE, &Wire1)) {
       // perform automatic system reboot to retry temp sensor initialization
@@ -172,7 +172,7 @@ void setup(){
     debug(F("Couldnt find Adafruit MAX17048?\nMake sure a battery is plugged in!\n"));
     delay(2000);
   }
-  debug("Found MAX17048 with Chip ID: 0x%x.\n",maxlipo.getChipID()); 
+  debug("Found MAX17048 with Chip ID: 0x%x.\n",maxlipo.getChipID());
   delay(2000);
 #endif
 updateBattery();
@@ -181,6 +181,11 @@ updateBattery();
 #if DISP_DEVICE != DISP_NONE
   display.setup();
   tasker.setInterval(updateDisplay,200);
+#endif
+
+// Status LED
+#if STATUS_LED != STATUS_LED_SENSOR
+  tasker.setInterval(updateLED,100);
 #endif
 
 // BLE
@@ -200,7 +205,7 @@ updateBattery();
   // 2do: make DUMMYDATA compatible with 2x I2C
   dummyloop();
 #endif
-}                                                           
+}
 
 void loop() {
 // I2C channel 1
@@ -220,7 +225,7 @@ void loop() {
   if (bleDevice.isConnected()) {
     bleDevice.transmit(tempSensor.measurement_16, mirrorTire, distSensor.distance, vBattery, lipoPercentage);
   }
-  
+
   #if DISP_DEVICE == DISP_NONE // Only use the LEDs w/o display
     blinkOnTempChange(tempSensor.measurement_16[8]/20);    // Use one single temp in the middle of the array
     blinkOnDistChange(distSensor.distance/20);    // value/nn -> Ignore smaller changes to prevent noise triggering blinks
@@ -238,6 +243,26 @@ void updateDisplay(void) {
   display.refreshDisplay(tempSensor.measurement, tempSensor.outerTireEdgePositionSmoothed, tempSensor.innerTireEdgePositionSmoothed, tempSensor.validAutozoomFrame, updateRate, distSensor.distance, lipoPercentage, bleDevice.isConnected());
 
 // 2do: integrate tempSensor2 & distSensor2 for display
+}
+
+void updateLED(void) {
+  static uint8_t sd_cnt = 0;
+
+  sd_cnt++;
+  if( sd_cnt % 30 == 0)
+  {
+    digitalWrite(GPIOLEDDIST, HIGH);
+#if (BOARD == BOARD_ESP32_FEATHER)
+    neopixelWrite(RGB_BUILTIN,255,255,255);
+#else
+    digitalWrite(GPIOLEDTEMP, HIGH);
+#endif
+    sd_cnt = 0;
+  }
+  else {
+    digitalWrite(GPIOLEDDIST, LOW);
+    digitalWrite(GPIOLEDTEMP, LOW);
+  }
 }
 
 // Figure out wheel position coding
@@ -285,7 +310,7 @@ void updateWheelPos(void) {
 #else
   uint8_t wheelPosCode = digitalRead(GPIOLEFT) + (digitalRead(GPIOFRONT) << 1) + (digitalRead(GPIOCAR) << 2);
   if (wheelPosCode >= 7) wheelPosCode = DEVICENAMECODE; // set from configuration
-  
+
   switch (wheelPosCode) {
     case 0: sprintf(wheelPos, "FL"); break;
     case 1: sprintf(wheelPos, "FR"); break;
@@ -341,6 +366,7 @@ void updateRefreshRate(void) {
 
 #if DISP_DEVICE == DISP_NONE
 void blinkOnDistChange(uint16_t distnew) {
+#if STATUS_LED == STATUS_LED_SENSOR
   if (GPIOLEDDIST > 0) {
     static uint16_t distold = 0;
 
@@ -350,7 +376,7 @@ void blinkOnDistChange(uint16_t distnew) {
       return;
     }
 */
-    
+
     if (distold != distnew) {
       digitalWrite(GPIOLEDDIST, HIGH);
       delay(3);
@@ -358,13 +384,15 @@ void blinkOnDistChange(uint16_t distnew) {
     }
     distold = distnew;
   }
+#endif
 }
 
 void blinkOnTempChange(int16_t tempnew) {
+#if STATUS_LED == STATUS_LED_SENSOR
   if (GPIOLEDTEMP > 0) {
     static int16_t tempold = 0;
     if (tempold != tempnew) {
-#if (BOARD == BOARD_ESP32_FEATHER)      
+#if (BOARD == BOARD_ESP32_FEATHER)
       neopixelWrite(RGB_BUILTIN,0,0,255);
 #else
       digitalWrite(GPIOLEDTEMP, HIGH);
@@ -374,6 +402,7 @@ void blinkOnTempChange(int16_t tempnew) {
     }
     tempold = tempnew;
   }
+#endif
 }
 #endif
 

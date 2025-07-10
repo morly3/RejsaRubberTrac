@@ -13,6 +13,10 @@
 #define DISP_128X32 0
 #define DISP_NONE   1
 
+// STATUS LED
+#define STATUS_LED_RUNNING  0
+#define STATUS_LED_SENSOR   1
+
 // Boards
 #define BOARD_NRF52_FEATHER 0
 #define BOARD_ESP32_FEATHER 1
