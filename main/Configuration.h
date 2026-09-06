@@ -53,8 +53,8 @@
 //#define FIS_AUTOZOOM          // Comment to disable autozooming
 #define AUTOZOOM_MINIMUM_TIRE_WIDTH 16 // Minimum tire width for autozooming
 
-#define TEMPSCALING  1.00  // Default 1.00. Use 1.3 when sensor is inside a ziplock bag.
-#define TEMPOFFSET   0     // Default 0. Use -3 when sensor is inside a ziplock bag. NOTE: in TENTHS of degrees Celsius --> TEMPOFFSET 10 --> 1 degree
+#define TEMPSCALING  1.0  // Default 1.00. Use 1.3 when sensor is inside a ziplock bag.
+#define TEMPOFFSET    -3    // Default 0. Use -3 when sensor is inside a ziplock bag. NOTE: in TENTHS of degrees Celsius --> TEMPOFFSET 10 --> 1 degree-3
                   
 #define MIRRORTIRE        0      // 0 = default
                                  // 1 = Mirror the tire (A), making the outside edge temps the inside edge temps
@@ -66,7 +66,7 @@
                           
 // -- General settings
 
-#define DEVICENAMECODE 7      // DEFAULT is 7
+#define DEVICENAMECODE 0      // DEFAULT is 7
                           // 7 = "RejsaRubber" + four last bytes from the bluetooth MAC address
 
                           // 0 = "RejsaRubberFL" + three last bytes from the bluetooth MAC address
