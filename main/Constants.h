@@ -21,6 +21,7 @@
 #define BOARD_NRF52_FEATHER 0
 #define BOARD_ESP32_FEATHER 1
 #define BOARD_ESP32_LOLIND32 2
+#define BOARD_M5STICKS3     3
 
 // Column aggregation algo identifiers
 #define COLUMN_AGGREGATE_MAX 0

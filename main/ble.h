@@ -1,7 +1,7 @@
 #include "Configuration.h"
-#if BOARD == BOARD_NRF52_FEATHER
+#if (BOARD == BOARD_NRF52_FEATHER)
   #include <bluefruit.h>
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
+#elif (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
   #include <BLEDevice.h>
   #include <BLEServer.h>
   #include <BLEUtils.h>
@@ -12,12 +12,12 @@
 
 class BLDevice {
 private:
-#if BOARD == BOARD_NRF52_FEATHER
+#if (BOARD == BOARD_NRF52_FEATHER)
   BLEService         mainService;
   BLECharacteristic  GATTone;
   BLECharacteristic  GATTtwo;
   BLECharacteristic  GATTthr;
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
+#elif (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
   BLEService*        mainService;
   BLEServer*         mainServer;
   BLEAdvertising*    mainAdvertising;

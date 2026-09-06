@@ -1,13 +1,13 @@
 #include "Configuration.h"
 #include <Arduino.h>
 #include <Wire.h>
-#if FIS_SENSOR == FIS_MLX90621
+#if (FIS_SENSOR == FIS_MLX90621)
   #include "MLX90621.h"
-#elif FIS_SENSOR == FIS_MLX90640
+#elif (FIS_SENSOR == FIS_MLX90640)
   #include "MLX90640.h"
-#elif FIS_SENSOR == FIS_AMG8833
+#elif (FIS_SENSOR == FIS_AMG8833)
   #include "Melopero_AMG8833.h"
-#elif FIS_SENSOR == FIS_MLX90614
+#elif (FIS_SENSOR == FIS_MLX90614)
   #include <Adafruit_MLX90614.h>
 #endif
 
@@ -33,13 +33,13 @@ typedef struct {
 
 class TempSensor {
 private:
-#if FIS_SENSOR == FIS_MLX90621
+#if (FIS_SENSOR == FIS_MLX90621)
   MLX90621 FISDevice;
-#elif FIS_SENSOR == FIS_MLX90640
+#elif (FIS_SENSOR == FIS_MLX90640)
   MLX90640 FISDevice;
-#elif FIS_SENSOR == FIS_AMG8833
+#elif (FIS_SENSOR == FIS_AMG8833)
   Melopero_AMG8833 FISDevice;
-#elif FIS_SENSOR == FIS_MLX90614
+#elif (FIS_SENSOR == FIS_MLX90614)
   Adafruit_MLX90614 FISDevice;
 #endif
   

@@ -7,8 +7,10 @@
 #include "display.h"
 #include "ble.h"
 #include "algo.h"
-#if BOARD == BOARD_ESP32_FEATHER
+#if (BOARD == BOARD_ESP32_FEATHER)
 #include "Adafruit_MAX1704X.h"
+#elif (BOARD == BOARD_M5STICKS3)
+#include <M5Unified.h>
 #endif
 
 TempSensor tempSensor;
@@ -17,17 +19,17 @@ uint8_t mirrorTire = 0;
 char wheelPos[] = "  ";  // Wheel position for Tire A
 char deviceNameSuffix[] = "  ";
 
-#if BOARD == BOARD_ESP32_FEATHER
+#if (BOARD == BOARD_ESP32_FEATHER)
 Adafruit_MAX17048 maxlipo;
 #endif
 
-#if BOARD == BOARD_ESP32_LOLIND32
-  #if FIS_SENSOR2_PRESENT == 1
+#if (BOARD == BOARD_ESP32_LOLIND32)
+  #if (FIS_SENSOR2_PRESENT == 1)
     TempSensor tempSensor2;
     uint8_t mirrorTire2 = 0;
     char wheelPos2[] = "  ";  // Wheel position for Tire B
   #endif
-  #if DIST_SENSOR2 != DIST_NONE
+  #if (DIST_SENSOR2 != DIST_NONE)
     DistSensor distSensor2;
   #endif
 #endif
@@ -58,14 +60,20 @@ void updateRefreshRate(void);
 // ----------------------------------------
 
 void setup(){
+#if (BOARD == BOARD_M5STICKS3)
+  auto cfg = M5.config();
+  cfg.serial_baudrate = 115200;
+  M5.begin(cfg);
+#else
   Serial.begin(115200);
   delay(1000);
   if (Serial){
     delay(3000); // Wait for Serial
   }
+#endif
   Serial.printf("\nBegin startup. Arduino version: %d\n", ARDUINO);
 
-#if BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
+#if (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
   Serial.printf("ESP32 IDF version: %s\n", esp_get_idf_version());
   analogReadResolution(12); //12 bits
   analogSetAttenuation(ADC_11db);  //For all pins
@@ -75,17 +83,17 @@ void setup(){
   debug("=======  DUMMYDATA  ========\n");
 #endif
 
-  if (GPIOLEDDIST > 0) pinMode(GPIOLEDDIST, OUTPUT);
-  if (GPIOLEDTEMP > 0) pinMode(GPIOLEDTEMP, OUTPUT);
-  pinMode(GPIODISTSENSORXSHUT, OUTPUT);
-  pinMode(GPIOLEFT, INPUT_PULLUP);
-  pinMode(GPIOFRONT, INPUT_PULLUP);
-  pinMode(GPIOCAR, INPUT_PULLUP);
-  pinMode(GPIOMIRR, INPUT_PULLUP);
-#if BOARD == BOARD_ESP32_LOLIND32
-  pinMode(GPIOMIRR2, INPUT_PULLUP);
-  pinMode(GPIOUNUSEDA2, INPUT);
-  pinMode(GPIOUNUSEDA2, INPUT);
+  if (GPIOLEDDIST >= 0) pinMode(GPIOLEDDIST, OUTPUT);
+  if (GPIOLEDTEMP >= 0) pinMode(GPIOLEDTEMP, OUTPUT);
+  if (GPIODISTSENSORXSHUT >= 0) pinMode(GPIODISTSENSORXSHUT, OUTPUT);
+  if (GPIOLEFT >= 0) pinMode(GPIOLEFT, INPUT_PULLUP);
+  if (GPIOFRONT >= 0) pinMode(GPIOFRONT, INPUT_PULLUP);
+  if (GPIOCAR >= 0) pinMode(GPIOCAR, INPUT_PULLUP);
+  if (GPIOMIRR >= 0) pinMode(GPIOMIRR, INPUT_PULLUP);
+#if (BOARD == BOARD_ESP32_LOLIND32)
+  if (GPIOMIRR2 >= 0) pinMode(GPIOMIRR2, INPUT_PULLUP);
+  if (GPIOUNUSEDA2 >= 0) pinMode(GPIOUNUSEDA2, INPUT);
+  if (GPIOUNUSEDB1 >= 0) pinMode(GPIOUNUSEDB1, INPUT);
 #endif
 
   updateWheelPos();
@@ -94,19 +102,19 @@ void setup(){
 
 
 // TIRE 1 MIRRORED?
-  if ((MIRRORTIRE == 1 || digitalRead(GPIOMIRR) == 0)) {
+  if (MIRRORTIRE == 1 || (GPIOMIRR >= 0 && digitalRead(GPIOMIRR) == 0)) {
     mirrorTire = 1;
     debug("Temperature sensor orientation for %s is mirrored.\n", wheelPos);
   }
 
 // I2C channel 1
-  #if BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
+  #if (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
     Wire.begin(GPIOSDA,GPIOSCL); // initialize I2C w/ I2C pins from config
   #else
     Wire.begin();
   #endif
 
-  #if DIST_SENSOR != DIST_NONE
+  #if (DIST_SENSOR != DIST_NONE)
     debug("Starting distance sensor for %s...\n", wheelPos);
     if (distSensor.initialise(&Wire, wheelPos)) {
       debug("Distance sensor for %s present.\n", wheelPos);
@@ -119,18 +127,18 @@ void setup(){
   debug("Starting temperature sensor for %s...\n", wheelPos);
   if (!tempSensor.initialise(FIS_REFRESHRATE, &Wire)) {
     // perform automatic system reboot to retry temp sensor initialization
-    #if BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
+    #if (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
       debug("Rebooting the MCU now...\n");
       ESP.restart();
-    #elif BOARD == BOARD_NRF52_FEATHER
+    #elif (BOARD == BOARD_NRF52_FEATHER)
       debug("Rebooting the MCU now...\n");
       NVIC_SystemReset();
     #endif
   }
 
-#if BOARD == BOARD_ESP32_LOLIND32
+#if (BOARD == BOARD_ESP32_LOLIND32)
   // I2C channel 2
-  #if FIS_SENSOR2_PRESENT == 1
+  #if (FIS_SENSOR2_PRESENT == 1)
 
     // TIRE 2 MIRRORED?
     if ((MIRRORTIRE2 == 1 || digitalRead(GPIOMIRR2) == 0)) {
@@ -140,7 +148,7 @@ void setup(){
 
     Wire1.begin(GPIOSDA2,GPIOSCL2); // initialize I2C w/ I2C pins from config
 
-    #if DIST_SENSOR2 != DIST_NONE
+    #if (DIST_SENSOR2 != DIST_NONE)
       debug("Starting distance sensor 2 for %s...\n", wheelPos2);
       if (distSensor2.initialise(&Wire1, wheelPos2)) {
         debug("Distance sensor 2 for %s present.\n", wheelPos2);
@@ -153,7 +161,7 @@ void setup(){
     debug("Starting temperature sensor 2 for %s...\n", wheelPos2);
     if (!tempSensor2.initialise(FIS_REFRESHRATE, &Wire1)) {
       // perform automatic system reboot to retry temp sensor initialization
-      #if BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
+      #if (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32)
         debug("Rebooting the MCU now...\n");
         ESP.restart();
       #endif
@@ -165,7 +173,7 @@ void setup(){
   #endif
 #endif
 
-#if BOARD == BOARD_ESP32_FEATHER
+#if (BOARD == BOARD_ESP32_FEATHER)
   debug(F("\nStarting battery monitor:MAX17048"));
 
   while (!maxlipo.begin()) {
@@ -178,13 +186,13 @@ void setup(){
 updateBattery();
 
 // display
-#if DISP_DEVICE != DISP_NONE
+#if (DISP_DEVICE != DISP_NONE)
   display.setup();
   tasker.setInterval(updateDisplay,200);
 #endif
 
 // Status LED
-#if STATUS_LED != STATUS_LED_SENSOR
+#if (STATUS_LED != STATUS_LED_SENSOR)
   tasker.setInterval(updateLED,100);
 #endif
 
@@ -209,14 +217,14 @@ updateBattery();
 
 void loop() {
 // I2C channel 1
-  #if DIST_SENSOR != DIST_NONE
+  #if (DIST_SENSOR != DIST_NONE)
     distSensor.measure();
   #endif
   tempSensor.measure();
 
 // I2C channel 2
-#if FIS_SENSOR2_PRESENT == 1
-  #if DIST_SENSOR2 != DIST_NONE
+#if (FIS_SENSOR2_PRESENT == 1)
+  #if (DIST_SENSOR2 != DIST_NONE)
     distSensor2.measure();
   #endif
   tempSensor2.measure();
@@ -226,7 +234,7 @@ void loop() {
     bleDevice.transmit(tempSensor.measurement_16, mirrorTire, distSensor.distance, vBattery, lipoPercentage);
   }
 
-  #if DISP_DEVICE == DISP_NONE // Only use the LEDs w/o display
+  #if (DISP_DEVICE == DISP_NONE) // Only use the LEDs w/o display
     blinkOnTempChange(tempSensor.measurement_16[8]/20);    // Use one single temp in the middle of the array
     blinkOnDistChange(distSensor.distance/20);    // value/nn -> Ignore smaller changes to prevent noise triggering blinks
   #endif
@@ -251,29 +259,33 @@ void updateLED(void) {
   sd_cnt++;
   if( sd_cnt % 30 == 0)
   {
-    digitalWrite(GPIOLEDDIST, HIGH);
+    if (GPIOLEDDIST >= 0) digitalWrite(GPIOLEDDIST, HIGH);
 #if (BOARD == BOARD_ESP32_FEATHER)
     neopixelWrite(RGB_BUILTIN,255,255,255);
 #else
-    digitalWrite(GPIOLEDTEMP, HIGH);
+    if (GPIOLEDTEMP >= 0) digitalWrite(GPIOLEDTEMP, HIGH);
 #endif
     sd_cnt = 0;
   }
   else {
-    digitalWrite(GPIOLEDDIST, LOW);
-    digitalWrite(GPIOLEDTEMP, LOW);
+    if (GPIOLEDDIST >= 0) digitalWrite(GPIOLEDDIST, LOW);
+    if (GPIOLEDTEMP >= 0) digitalWrite(GPIOLEDTEMP, LOW);
   }
 }
 
 // Figure out wheel position coding
 void updateWheelPos(void) {
-#if FIS_SENSOR2_PRESENT == 1
-  if (digitalRead(GPIOLEFT)) {
+#if (FIS_SENSOR2_PRESENT == 1)
+  uint8_t leftPinVal = (GPIOLEFT >= 0) ? digitalRead(GPIOLEFT) : 1;
+  uint8_t frontPinVal = (GPIOFRONT >= 0) ? digitalRead(GPIOFRONT) : 1;
+  uint8_t carPinVal = (GPIOCAR >= 0) ? digitalRead(GPIOCAR) : 1;
+
+  if (leftPinVal) {
     // GPIOLEFT  = 0 => axis: both sensors are mounted on the front or rear axle
     wheelPos[1]  = 'L';
     wheelPos2[1] = 'R';
 
-    if (digitalRead(GPIOFRONT)) {
+    if (frontPinVal) {
       // GPIOFRONT = 0 => axis 1 (front)
       wheelPos[0]  = 'F';
       wheelPos2[0] = 'F';
@@ -290,7 +302,7 @@ void updateWheelPos(void) {
     wheelPos[0]  = 'F';
     wheelPos2[0] = 'R';
 
-    if (digitalRead(GPIOFRONT)) {
+    if (frontPinVal) {
       // GPIOFRONT = 0 => axis 1 (left)
       wheelPos[1]  = 'L';
       wheelPos2[1] = 'L';
@@ -304,11 +316,14 @@ void updateWheelPos(void) {
   }
 
   // overwrite left/right if we happen to be a motorcycle
-  if (!digitalRead(GPIOCAR))  wheelPos[1]  = ' ';
-  if (!digitalRead(GPIOCAR))  wheelPos2[1] = ' ';
+  if (!carPinVal)  wheelPos[1]  = ' ';
+  if (!carPinVal)  wheelPos2[1] = ' ';
 
 #else
-  uint8_t wheelPosCode = digitalRead(GPIOLEFT) + (digitalRead(GPIOFRONT) << 1) + (digitalRead(GPIOCAR) << 2);
+  uint8_t leftVal = (GPIOLEFT >= 0) ? digitalRead(GPIOLEFT) : 1;
+  uint8_t frontVal = (GPIOFRONT >= 0) ? digitalRead(GPIOFRONT) : 1;
+  uint8_t carVal = (GPIOCAR >= 0) ? digitalRead(GPIOCAR) : 1;
+  uint8_t wheelPosCode = leftVal + (frontVal << 1) + (carVal << 2);
   if (wheelPosCode >= 7) wheelPosCode = DEVICENAMECODE; // set from configuration
 
   switch (wheelPosCode) {
@@ -327,13 +342,13 @@ void updateWheelPos(void) {
 }
 
 void printStatus(void) {
-#if DIST_SENSOR != DIST_NONE
+#if (DIST_SENSOR != DIST_NONE)
   char distSensor_str[6];
   sprintf(distSensor_str, "%imm", distSensor.distance);
 #else
   const char* distSensor_str = "N/A  ";
 #endif
-#if DIST_SENSOR2 != DIST_NONE
+#if (DIST_SENSOR2 != DIST_NONE)
   char distSensor2_str[6];
   sprintf(distSensor2_str, "%imm", distSensor2.distance);
 #else
@@ -347,7 +362,7 @@ void printStatus(void) {
     debug("T: %.1f\t",(float)tempSensor.measurement[i]/10);
   }
   debug("\n");
-#if FIS_SENSOR2_PRESENT == 1
+#if (FIS_SENSOR2_PRESENT == 1)
   debug("\t\t\t\t\tWheel: %s\tD: %s\t", wheelPos2, distSensor2_str);
   debug("Zoomrate: %.2f%% \tOutliers: %.2f%%\tMaxRowDelta: %.1f\tAvgTemp: %.1f\tAvgStdDev: %.1f\t", tempSensor2.runningAvgZoomedFramesRate*100, tempSensor2.runningAvgOutlierRate*100, tempSensor2.maxRowDeltaTmp/10, tempSensor2.movingAvgFrameTmp/10, tempSensor2.movingAvgStdDevFrameTmp/10);
   for (uint8_t i=0; i<FIS_X; i++) {
@@ -364,10 +379,10 @@ void updateRefreshRate(void) {
   measurementCycles = 0;
 }
 
-#if DISP_DEVICE == DISP_NONE
+#if (DISP_DEVICE == DISP_NONE)
 void blinkOnDistChange(uint16_t distnew) {
-#if STATUS_LED == STATUS_LED_SENSOR
-  if (GPIOLEDDIST > 0) {
+#if (STATUS_LED == STATUS_LED_SENSOR)
+  if (GPIOLEDDIST >= 0) {
     static uint16_t distold = 0;
 
 /* DEPRECATED?
@@ -388,8 +403,8 @@ void blinkOnDistChange(uint16_t distnew) {
 }
 
 void blinkOnTempChange(int16_t tempnew) {
-#if STATUS_LED == STATUS_LED_SENSOR
-  if (GPIOLEDTEMP > 0) {
+#if (STATUS_LED == STATUS_LED_SENSOR)
+  if (GPIOLEDTEMP >= 0) {
     static int16_t tempold = 0;
     if (tempold != tempnew) {
 #if (BOARD == BOARD_ESP32_FEATHER)
@@ -408,7 +423,7 @@ void blinkOnTempChange(int16_t tempnew) {
 
 int getVbat(void) {
   double adcRead=0;
-#if BOARD == BOARD_ESP32_LOLIND32 // Compensation for ESP32's crappy ADC -> https://bitbucket.org/Blackneron/esp32_adc/src/master/
+#if (BOARD == BOARD_ESP32_LOLIND32) // Compensation for ESP32's crappy ADC -> https://bitbucket.org/Blackneron/esp32_adc/src/master/
   const double f1 = 1.7111361460487501e+001;
   const double f2 = 4.2319467860421662e+000;
   const double f3 = -1.9077375643188468e-002;
@@ -436,7 +451,7 @@ int getVbat(void) {
   }
   averageInputValue = totalInputValue / loops;
   adcRead = f1 + f2 * pow(averageInputValue, 1) + f3 * pow(averageInputValue, 2) + f4 * pow(averageInputValue, 3) + f5 * pow(averageInputValue, 4) + f6 * pow(averageInputValue, 5) + f7 * pow(averageInputValue, 6) + f8 * pow(averageInputValue, 7) + f9 * pow(averageInputValue, 8) + f10 * pow(averageInputValue, 9) + f11 * pow(averageInputValue, 10) + f12 * pow(averageInputValue, 11);
-#elif BOARD == BOARD_NRF52_FEATHER
+#elif (BOARD == BOARD_NRF52_FEATHER)
   adcRead = analogRead(VBAT_PIN);
 #endif
   return adcRead * MILLIVOLTFULLSCALE * BATRESISTORCOMP / STEPSFULLSCALE;
@@ -463,6 +478,15 @@ void updateBattery(void) {
   else if( 100.0 < lipoPercentage)
   {
     lipoPercentage = 100.0;
+  }
+#elif (BOARD == BOARD_M5STICKS3)
+  M5.update();
+  vBattery = M5.Power.getBatteryVoltage();
+  lipoPercentage = M5.Power.getBatteryLevel();
+  if (lipoPercentage < 0) {
+    lipoPercentage = 0;
+  } else if (lipoPercentage > 100) {
+    lipoPercentage = 100;
   }
 #endif
 }

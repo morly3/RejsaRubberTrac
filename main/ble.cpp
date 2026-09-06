@@ -1,6 +1,6 @@
 #include "ble.h"
 
-#if BOARD == BOARD_ESP32_FEATHER
+#if (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
 // Fix for some Android/iOS reconnection issues
 class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
@@ -21,7 +21,7 @@ BLDevice::BLDevice() { // We initialize a couple things in constructor
   datapackTwo.protocol = PROTOCOL;
   datapackThr.distance = 0;
   datapackThr.protocol = PROTOCOL;
-#if BOARD == BOARD_NRF52_FEATHER
+#if (BOARD == BOARD_NRF52_FEATHER)
   mainService = BLEService(0x00000001000000fd8933990d6f411ff7);
   GATTone = BLECharacteristic(0x01);
   GATTtwo = BLECharacteristic(0x02);
@@ -32,7 +32,7 @@ BLDevice::BLDevice() { // We initialize a couple things in constructor
 void BLDevice::setupDevice(char bleName[]) {
   uint8_t macaddr[6];
 
-#if BOARD == BOARD_NRF52_FEATHER
+#if (BOARD == BOARD_NRF52_FEATHER)
   Bluefruit.autoConnLed(false); // DISABLE BLUE BLINK ON CONNECT STATUS
   Bluefruit.begin(); 
   Bluefruit.getAddr(macaddr);
@@ -41,7 +41,7 @@ void BLDevice::setupDevice(char bleName[]) {
   Serial.print("Starting bluetooth with MAC address ");
 //  Serial.printBufferReverse(macaddr, 6, ':');
   Serial.println();
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
+#elif (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
   BLEDevice::init(bleName);
   mainServer = BLEDevice::createServer();
   mainServer->setCallbacks(new MyServerCallbacks());  // Fix for some Android/iOS reconnection issues
@@ -53,7 +53,7 @@ void BLDevice::setupDevice(char bleName[]) {
 }
 
 void BLDevice::setupMainService(void) {
-#if BOARD == BOARD_NRF52_FEATHER
+#if (BOARD == BOARD_NRF52_FEATHER)
   mainService.begin();
 
   GATTone.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ);  // Options: CHR_PROPS_BROADCAST, CHR_PROPS_NOTIFY, CHR_PROPS_INDICATE, CHR_PROPS_READ, CHR_PROPS_WRITE_WO_RESP, CHR_PROPS_WRITE
@@ -70,7 +70,7 @@ void BLDevice::setupMainService(void) {
   GATTthr.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
   GATTthr.setFixedLen(20);
   GATTthr.begin();
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
+#elif (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
   mainService = mainServer->createService(BLEUUID((uint16_t)0x1FF7));
   GATTone = mainService->createCharacteristic(BLEUUID((uint16_t)0x0001), BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY );
   GATTtwo = mainService->createCharacteristic(BLEUUID((uint16_t)0x0002), BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY );
@@ -84,7 +84,7 @@ void BLDevice::setupMainService(void) {
 
 
 void BLDevice::startAdvertising(void) {
-#if BOARD == BOARD_NRF52_FEATHER
+#if (BOARD == BOARD_NRF52_FEATHER)
   Bluefruit.setTxPower(4);
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
   Bluefruit.Advertising.addTxPower();
@@ -94,7 +94,7 @@ void BLDevice::startAdvertising(void) {
   Bluefruit.Advertising.setInterval(32, 244); // in unit of 0.625 ms
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0); 
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
+#elif (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
   mainAdvertising = BLEDevice::getAdvertising();
   mainAdvertising->addServiceUUID(BLEUUID((uint16_t)0x1FF7));
   mainAdvertising->setScanResponse(false);
@@ -126,11 +126,11 @@ void BLDevice::transmit(int16_t tempMeasurements[], uint8_t mirrorTire, int16_t 
   renderPacketTemperature(tempMeasurements, mirrorTire, datapackOne, datapackTwo, datapackThr);
   renderPacketBattery(vBattery, lipoPercentage, datapackTwo);
   datapackOne.distance = datapackThr.distance = distance;
-#if BOARD == BOARD_NRF52_FEATHER
+#if (BOARD == BOARD_NRF52_FEATHER)
   GATTone.notify(&datapackOne, sizeof(datapackOne));
   GATTtwo.notify(&datapackTwo, sizeof(datapackTwo));
   GATTthr.notify(&datapackThr, sizeof(datapackThr));
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
+#elif (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
   GATTone->setValue((uint8_t*)&datapackOne, sizeof(datapackOne));
   GATTtwo->setValue((uint8_t*)&datapackTwo, sizeof(datapackTwo));
   GATTthr->setValue((uint8_t*)&datapackThr, sizeof(datapackThr));
@@ -141,9 +141,9 @@ void BLDevice::transmit(int16_t tempMeasurements[], uint8_t mirrorTire, int16_t 
 }
 
 boolean BLDevice::isConnected() {
-#if BOARD == BOARD_NRF52_FEATHER
+#if (BOARD == BOARD_NRF52_FEATHER)
   return Bluefruit.connected();
-#elif BOARD == BOARD_ESP32_FEATHER || BOARD == BOARD_ESP32_LOLIND32
+#elif (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
   int32_t connectedCount;
   connectedCount = mainServer->getConnectedCount();
   return (connectedCount > 0);
