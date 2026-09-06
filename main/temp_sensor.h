@@ -46,6 +46,7 @@ private:
   TwoWire *thisWire;
 
   int16_t getPixelTemperature(uint8_t x, uint8_t y);
+  int16_t getImagePixelTemperature(uint8_t x, uint8_t y);
   int16_t calculateColumnTemperature(int16_t column_content[], uint8_t size);
   void interpolate(uint8_t startColumn, uint8_t endColumn, int16_t result[]);
   void calculateSlope(int16_t result[]);
@@ -60,6 +61,7 @@ private:
   uint16_t removeOutliersChauvenet(int16_t *arr, int size);
   
 public:
+  int16_t image[FIS_X * FIS_Y];
   int16_t measurement[FIS_X];
   int16_t measurement_slope[FIS_X-1];
   int16_t measurement_16[16];

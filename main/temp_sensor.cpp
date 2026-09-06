@@ -38,6 +38,14 @@ void TempSensor::measure() {
   FISDevice.updateThermistorTemperature();
   FISDevice.updatePixelMatrix();
 #endif
+
+#if (BOARD == BOARD_M5STICKS3)
+  for (uint8_t y=0; y<FIS_Y; y++) {
+    for (uint8_t x=0; x<FIS_X; x++) {
+      image[y * FIS_X + x] = getImagePixelTemperature(x, y);
+    }
+  }
+#endif
   
   for(uint8_t x=0; x<FIS_X; x++){
     for (uint8_t y=0; y<EFFECTIVE_ROWS; y++) { // Read the columns first
@@ -106,6 +114,18 @@ int16_t TempSensor::getPixelTemperature(uint8_t x, uint8_t y) {
     return ABS_ZERO;
   }
   return (int16_t)(temp + TEMPOFFSET) * 10 * TEMPSCALING; // MLX90614 only has one pixel
+#endif
+}
+
+int16_t TempSensor::getImagePixelTemperature(uint8_t x, uint8_t y) {
+#if (FIS_SENSOR == FIS_MLX90621)
+  return (int16_t)(FISDevice.getTemperature(y+x*FIS_Y) + TEMPOFFSET) * 10 * TEMPSCALING;
+#elif (FIS_SENSOR == FIS_MLX90640)
+  return (int16_t)(FISDevice.getTemperature(y*FIS_X+x) + TEMPOFFSET) * 10 * TEMPSCALING;
+#elif (FIS_SENSOR == FIS_AMG8833)
+  return (int16_t)(FISDevice.pixelMatrix[x][y] + TEMPOFFSET) * 10 * TEMPSCALING;
+#elif (FIS_SENSOR == FIS_MLX90614)
+  return getPixelTemperature(x, y);
 #endif
 }
 

@@ -11,6 +11,10 @@
 #include "Adafruit_MAX1704X.h"
 #elif (BOARD == BOARD_M5STICKS3)
 #include <M5Unified.h>
+#include <Preferences.h>
+M5Canvas lcdCanvas(&M5.Display);
+M5Canvas settingsCanvas(&M5.Display);
+Preferences m5Preferences;
 #endif
 
 TempSensor tempSensor;
@@ -51,6 +55,22 @@ void blinkOnDistChange(uint16_t);
 int getVbat(void);
 void updateBattery(void);
 void updateRefreshRate(void);
+#if (BOARD == BOARD_M5STICKS3)
+void updateM5StickDisplay(void);
+uint16_t thermalColor(int16_t temperature, int16_t minimum, int16_t maximum);
+void updateM5DisplayRotation(void);
+#endif
+
+#if (BOARD == BOARD_M5STICKS3)
+const unsigned long LCD_STARTUP_DURATION = 5000;
+const unsigned long LCD_SINGLE_CLICK_DURATION = 30000;
+const unsigned long LCD_ACTIVE_CLICK_INCREMENT = 100000;
+const unsigned long LCD_REFRESH_INTERVAL = 200;
+unsigned long lcdOffAt = 0;
+unsigned long lastLcdRefresh = 0;
+uint8_t lcdSelection = 0;
+char wheelPositionBeforeSettings[3] = "  ";
+#endif
 
 #ifdef DUMMYDATA
   #include "dummydata.h"
@@ -64,6 +84,9 @@ void setup(){
   auto cfg = M5.config();
   cfg.serial_baudrate = 115200;
   M5.begin(cfg);
+  m5Preferences.begin("rubbertrack", false);
+  lcdOffAt = millis() + LCD_STARTUP_DURATION;
+  M5.Display.setBrightness(128);
 #else
   Serial.begin(115200);
   delay(1000);
@@ -97,6 +120,13 @@ void setup(){
 #endif
 
   updateWheelPos();
+  String savedWheelPos = m5Preferences.getString("wheel", "");
+  if (savedWheelPos == "FL" || savedWheelPos == "FR" || savedWheelPos == "RL" || savedWheelPos == "RR") {
+    strcpy(wheelPos, savedWheelPos.c_str());
+    strcpy(deviceNameSuffix, wheelPos);
+  }
+  mirrorTire = m5Preferences.getUChar("mirror", mirrorTire);
+  updateM5DisplayRotation();
   char bleName[32] = "RejsaRubber";
   sprintf(bleName, "%s%s\0",bleName, deviceNameSuffix); // Extend bleName[] with the suffix
 
@@ -216,6 +246,64 @@ updateBattery();
 }
 
 void loop() {
+#if (BOARD == BOARD_M5STICKS3)
+  M5.update();
+  if (M5.BtnB.wasPressed()) {
+    uint8_t previousSelection = lcdSelection;
+    lcdSelection = (lcdSelection + 1) % 3;
+    if (previousSelection == 0 && lcdSelection == 1) {
+      strcpy(wheelPositionBeforeSettings, wheelPos);
+    }
+    if (previousSelection != 0 && lcdSelection == 0 &&
+        strcmp(wheelPositionBeforeSettings, wheelPos) != 0) {
+      m5Preferences.putString("wheel", wheelPos);
+      debug("Tire position changed to %s. Restarting to refresh BLE and sensor setup.\n", wheelPos);
+      delay(100);
+      ESP.restart();
+    }
+    lcdOffAt = millis() + 60000;
+    M5.Display.setBrightness(128);
+  }
+  if (M5.BtnA.wasPressed()) {
+    if (lcdSelection == 1) {
+      if (strcmp(wheelPos, "FL") == 0) {
+        strcpy(wheelPos, "FR");
+      } else if (strcmp(wheelPos, "FR") == 0) {
+        strcpy(wheelPos, "RL");
+      } else if (strcmp(wheelPos, "RL") == 0) {
+        strcpy(wheelPos, "RR");
+      } else {
+        strcpy(wheelPos, "FL");
+      }
+      strcpy(deviceNameSuffix, wheelPos);
+      m5Preferences.putString("wheel", wheelPos);
+      updateM5DisplayRotation();
+    } else if (lcdSelection == 2) {
+      mirrorTire = !mirrorTire;
+      m5Preferences.putUChar("mirror", mirrorTire);
+      updateM5DisplayRotation();
+    } else {
+      if (lcdOffAt == 0) {
+        lcdOffAt = millis() + LCD_SINGLE_CLICK_DURATION;
+      } else {
+        lcdOffAt += LCD_ACTIVE_CLICK_INCREMENT;
+      }
+      M5.Display.setBrightness(128);
+    }
+    if (lcdSelection != 0) {
+      lcdOffAt = millis() + 60000;
+      M5.Display.setBrightness(128);
+    }
+  }
+  if (lcdOffAt != 0) {
+    M5.Display.setBrightness(128);
+  }
+  if (lcdOffAt != 0 && (long)(millis() - lcdOffAt) >= 0) {
+    lcdOffAt = 0;
+    M5.Display.setBrightness(0);
+  }
+#endif
+
 // I2C channel 1
   #if (DIST_SENSOR != DIST_NONE)
     distSensor.measure();
@@ -234,6 +322,10 @@ void loop() {
     bleDevice.transmit(tempSensor.measurement_16, mirrorTire, distSensor.distance, vBattery, lipoPercentage);
   }
 
+#if (BOARD == BOARD_M5STICKS3)
+  updateM5StickDisplay();
+#endif
+
   #if (DISP_DEVICE == DISP_NONE) // Only use the LEDs w/o display
     blinkOnTempChange(tempSensor.measurement_16[8]/20);    // Use one single temp in the middle of the array
     blinkOnDistChange(distSensor.distance/20);    // value/nn -> Ignore smaller changes to prevent noise triggering blinks
@@ -246,6 +338,118 @@ void loop() {
 
   tasker.loop();
 }
+
+#if (BOARD == BOARD_M5STICKS3)
+void updateM5StickDisplay(void) {
+  if (lcdOffAt == 0 || millis() - lastLcdRefresh < LCD_REFRESH_INTERVAL) return;
+
+  lastLcdRefresh = millis();
+  int16_t minimum = tempSensor.image[0];
+  int16_t maximum = tempSensor.image[0];
+  for (uint16_t index=1; index<FIS_X * FIS_Y; index++) {
+    if (tempSensor.image[index] < minimum) minimum = tempSensor.image[index];
+    if (tempSensor.image[index] > maximum) maximum = tempSensor.image[index];
+  }
+  if (maximum == minimum) maximum++;
+
+  int displayWidth = M5.Display.width();
+  int displayHeight = M5.Display.height();
+  int settingsWidth = 80;
+  int imageAreaWidth = displayWidth - settingsWidth;
+  int cellSize = min(imageAreaWidth / FIS_X, displayHeight / FIS_Y);
+  int cellWidth = cellSize;
+  int cellHeight = cellSize;
+  int imageWidth = cellWidth * FIS_X;
+  int imageHeight = cellHeight * FIS_Y;
+  int imageX = (imageAreaWidth - imageWidth) / 2;
+  int imageY = (displayHeight - imageHeight) / 2;
+  bool reverseLayout = (strcmp(wheelPos, "FR") == 0 || strcmp(wheelPos, "RR") == 0) != (mirrorTire != 0);
+
+  lcdCanvas.fillScreen(BLACK);
+  for (uint8_t y=0; y<FIS_Y; y++) {
+    for (uint8_t x=0; x<FIS_X; x++) {
+      uint8_t sourceX = reverseLayout ? FIS_X - 1 - x : x;
+      uint8_t sourceY = reverseLayout ? FIS_Y - 1 - y : y;
+      lcdCanvas.fillRect(imageX + x * cellWidth, imageY + y * cellHeight, cellWidth, cellHeight,
+                         thermalColor(tempSensor.image[sourceY * FIS_X + sourceX], minimum, maximum));
+    }
+  }
+  int targetY = imageY + IGNORE_TOP_ROWS * cellHeight;
+  int targetHeight = EFFECTIVE_ROWS * cellHeight;
+  lcdCanvas.drawRect(imageX, targetY, imageWidth, targetHeight, RED);
+  lcdCanvas.drawRect(imageX + 1, targetY + 1, imageWidth - 2, targetHeight - 2, RED);
+  lcdCanvas.drawRect(imageX + 2, targetY + 2, imageWidth - 4, targetHeight - 4, RED);
+
+  int settingsX = imageAreaWidth;
+  bool reverseText = strcmp(wheelPos, "FR") == 0 || strcmp(wheelPos, "RR") == 0;
+  settingsCanvas.setRotation(reverseText ? 2 : 0);
+  settingsCanvas.fillScreen(BLACK);
+  settingsCanvas.setTextColor(WHITE, BLACK);
+  settingsCanvas.setTextSize(2);
+  settingsCanvas.setCursor(4, 4);
+  settingsCanvas.printf("%d%%", lipoPercentage);
+  settingsCanvas.setCursor(4, 76);
+  if (lcdSelection == 2) settingsCanvas.fillRect(4, 74, 76, 20, WHITE);
+  settingsCanvas.setTextColor(lcdSelection == 2 ? RED : WHITE, lcdSelection == 2 ? WHITE : BLACK);
+  settingsCanvas.print("INSIDE");
+  settingsCanvas.setTextColor(WHITE, BLACK);
+  const char* tirePositions[] = {"FL", "FR", "RL", "RR"};
+  const int tireX[] = {4, 44, 4, 44};
+  const int tireY[] = {20, 20, 48, 48};
+  for (uint8_t tireIndex=0; tireIndex<4; tireIndex++) {
+    bool isCurrent = strcmp(wheelPos, tirePositions[tireIndex]) == 0;
+    bool isSelected = lcdSelection == 1 && isCurrent;
+    if (isSelected) {
+      settingsCanvas.fillRect(tireX[tireIndex], tireY[tireIndex], 32, 20, WHITE);
+    }
+    settingsCanvas.setTextColor(isCurrent ? RED : WHITE, isSelected ? WHITE : BLACK);
+    settingsCanvas.setTextSize(2);
+    settingsCanvas.setCursor(tireX[tireIndex], tireY[tireIndex]);
+    settingsCanvas.print(tirePositions[tireIndex]);
+  }
+
+  unsigned long remainingSeconds = (lcdOffAt - millis() + 999) / 1000;
+  lcdCanvas.pushSprite(0, 0);
+  settingsCanvas.setTextColor(WHITE, BLACK);
+  settingsCanvas.setCursor(4, displayHeight - 24);
+  settingsCanvas.printf("%lus", remainingSeconds);
+  settingsCanvas.pushSprite(settingsX, 0, BLACK);
+}
+
+void updateM5DisplayRotation(void) {
+  bool reverseWheel = strcmp(wheelPos, "FR") == 0 || strcmp(wheelPos, "RR") == 0;
+  uint8_t rotation = 3;
+  if (reverseWheel) rotation = (rotation + 2) % 4;
+  if (mirrorTire) rotation = (rotation + 2) % 4;
+  M5.Display.setRotation(rotation);
+  lcdCanvas.deleteSprite();
+  lcdCanvas.createSprite(M5.Display.width(), M5.Display.height());
+  settingsCanvas.deleteSprite();
+  settingsCanvas.createSprite(80, M5.Display.height());
+}
+
+uint16_t thermalColor(int16_t temperature, int16_t minimum, int16_t maximum) {
+  uint16_t level = (uint32_t)(temperature - minimum) * 255 / (maximum - minimum);
+  uint8_t red;
+  uint8_t green;
+  uint8_t blue;
+
+  if (level < 85) {
+    red = 0;
+    green = level * 3;
+    blue = 255 - level * 2;
+  } else if (level < 170) {
+    red = (level - 85) * 3;
+    green = 255;
+    blue = 85 - (level - 85);
+  } else {
+    red = 255;
+    green = 255 - (level - 170) * 3;
+    blue = 0;
+  }
+  return M5.Display.color565(red, green, blue);
+}
+#endif
 
 void updateDisplay(void) {
   display.refreshDisplay(tempSensor.measurement, tempSensor.outerTireEdgePositionSmoothed, tempSensor.innerTireEdgePositionSmoothed, tempSensor.validAutozoomFrame, updateRate, distSensor.distance, lipoPercentage, bleDevice.isConnected());
