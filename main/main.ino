@@ -308,7 +308,14 @@ void loop() {
   #if (DIST_SENSOR != DIST_NONE)
     distSensor.measure();
   #endif
-  tempSensor.measure();
+#if (BOARD == BOARD_M5STICKS3)
+  // Only wait for both MLX90640 subpages (needed for a clean 2D image) while the LCD is on;
+  // a single subpage per call doubles the transfer rate for BLE-only operation.
+  // tempSensor.measure(lcdOffAt != 0);
+  tempSensor.measure(false);
+#else
+  tempSensor.measure(false);
+#endif
 
 // I2C channel 2
 #if (FIS_SENSOR2_PRESENT == 1)

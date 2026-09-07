@@ -16,7 +16,7 @@ private:
   TwoWire *i2c;
 public:
   boolean isConnected();
-  void measure(bool);
+  void measure(bool waitForBothSubpages);
   float getTemperature(int num);
   boolean initialise(int refrate, TwoWire *thisI2c = &Wire);
 };

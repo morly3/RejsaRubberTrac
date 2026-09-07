@@ -62,9 +62,25 @@ boolean MLX90640::isConnected() {
   return (true);
 }
 
-void MLX90640::measure(bool) {
+void MLX90640::measure(bool waitForBothSubpages) {
   uint16_t mlx90640Frame[834];
   MLX90640_I2CFreqSet(800, i2c); //Changing gears, ensure that I2C clock speed set to 1MHz
+
+  if (!waitForBothSubpages) {
+    // Fast path: use whichever subpage is ready. Twice the frame rate, but the two
+    // halves of the image can be from different moments (fine when only the per-column
+    // BLE data is needed and the 2D image isn't being displayed).
+    int _stat = MLX90640_GetFrameData((uint8_t)MLX90640_ADDRESS, mlx90640Frame, i2c);
+    if (_stat < 0) {
+      Serial.printf("GetFrame Error: %d\n", _stat);
+      return;
+    }
+    Tambient = MLX90640_GetTa(mlx90640Frame, &mlx90640);
+    float tr = Tambient - TA_SHIFT; //Reflected temperature based on the sensor ambient temperature
+    MLX90640_CalculateTo(mlx90640Frame, &mlx90640, 1, tr, temperatures);
+    return;
+  }
+
   bool receivedSubpage[2] = {false, false};
   for (uint8_t attempt=0; attempt<4 && (!receivedSubpage[0] || !receivedSubpage[1]); attempt++) {
     int _stat = MLX90640_GetFrameData((uint8_t)MLX90640_ADDRESS, mlx90640Frame, i2c);

@@ -84,5 +84,5 @@ public:
   float maxRowDeltaTmp = 0.0; // maximum of the moving average to detect shaded rows through increasing deltas with increasingly warm tire temps vs. constantly cold bodywork
   
 	boolean initialise(int refrate, TwoWire *I2Cpipe = &Wire);
-	void measure();
+	void measure(bool waitForBothSubpages = true);
 };

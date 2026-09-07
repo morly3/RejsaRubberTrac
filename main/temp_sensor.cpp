@@ -24,7 +24,7 @@ boolean TempSensor::initialise(int refrate, TwoWire *I2Cpipe) {
 #endif
 };
 
-void TempSensor::measure() {
+void TempSensor::measure(bool waitForBothSubpages) {
 	
   int16_t column_content[EFFECTIVE_ROWS];
   float avgMins = 0.0;
@@ -33,7 +33,7 @@ void TempSensor::measure() {
   totalFrameCount++;
   totalOutliersThisFrame = 0;
 #if (FIS_SENSOR == FIS_MLX90621) || (FIS_SENSOR == FIS_MLX90640)
-  FISDevice.measure(true);
+  FISDevice.measure(waitForBothSubpages);
 #elif (FIS_SENSOR == FIS_AMG8833)
   FISDevice.updateThermistorTemperature();
   FISDevice.updatePixelMatrix();
