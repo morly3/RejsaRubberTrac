@@ -84,6 +84,7 @@ void setup(){
   auto cfg = M5.config();
   cfg.serial_baudrate = 115200;
   M5.begin(cfg);
+  Serial.setTxTimeoutMs(0);
   m5Preferences.begin("rubbertrack", false);
   lcdOffAt = millis() + LCD_STARTUP_DURATION;
   M5.Display.setBrightness(128);
