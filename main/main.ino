@@ -11,10 +11,14 @@
 #include "Adafruit_MAX1704X.h"
 #elif (BOARD == BOARD_M5STICKS3)
 #include <M5Unified.h>
+#include <M5PM1.h>
+#include "SparkFun_BMI270_Arduino_Library.h"
 #include <Preferences.h>
 M5Canvas lcdCanvas(&M5.Display);
 M5Canvas settingsCanvas(&M5.Display);
 Preferences m5Preferences;
+M5PM1 pm1;
+BMI270 imu;
 #endif
 
 TempSensor tempSensor;
@@ -59,6 +63,9 @@ void updateRefreshRate(void);
 void updateM5StickDisplay(void);
 uint16_t thermalColor(int16_t temperature, int16_t minimum, int16_t maximum);
 void updateM5DisplayRotation(void);
+void enterM5L1(void);
+bool configureM5Wake(void);
+bool detectM5L1WakeBeforeDisplay(void);
 #endif
 
 #if (BOARD == BOARD_M5STICKS3)
@@ -70,6 +77,31 @@ unsigned long lcdOffAt = 0;
 unsigned long lastLcdRefresh = 0;
 uint8_t lcdSelection = 0;
 char wheelPositionBeforeSettings[3] = "  ";
+const uint32_t L1_TIMER_SECONDS = 60;
+const uint32_t L1_BLE_WAIT_MS = 1000;
+const uint8_t L1_RTC_MARKER = 0xA5;
+
+// Motion wake-up settings. Change these two values only.
+constexpr float MOTION_WAKE_THRESHOLD_G = 0.20f;
+constexpr uint32_t MOTION_WAKE_DURATION_MS = 100;
+
+// BMI270 Any Motion register resolution.
+constexpr float MOTION_THRESHOLD_LSB_MG = 0.48f;
+constexpr uint32_t MOTION_DURATION_LSB_MS = 20;
+constexpr uint16_t MOTION_WAKE_THRESHOLD_LSB =
+    static_cast<uint16_t>((MOTION_WAKE_THRESHOLD_G * 1000.0f / MOTION_THRESHOLD_LSB_MG) + 0.5f);
+constexpr uint16_t MOTION_WAKE_DURATION_LSB =
+    static_cast<uint16_t>((MOTION_WAKE_DURATION_MS + MOTION_DURATION_LSB_MS / 2) /
+                          MOTION_DURATION_LSB_MS);
+
+unsigned long l1BleWaitUntil = 0;
+bool l1WakeCycle = false;
+bool bleWasConnected = false;
+bool screenOffSleepPending = false;
+bool pm1Ready = false;
+bool imuReady = false;
+int8_t internalSda = 47;
+int8_t internalScl = 48;
 #endif
 
 #ifdef DUMMYDATA
@@ -81,13 +113,20 @@ char wheelPositionBeforeSettings[3] = "  ";
 
 void setup(){
 #if (BOARD == BOARD_M5STICKS3)
+  l1WakeCycle = detectM5L1WakeBeforeDisplay();
+  if (l1WakeCycle) M5.Display.setBrightness(0);
   auto cfg = M5.config();
   cfg.serial_baudrate = 115200;
+  cfg.clear_display = !l1WakeCycle;
   M5.begin(cfg);
-  Serial.setTxTimeoutMs(0);
+  // Available in newer ESP32 Arduino cores; older PlatformIO cores do not
+  // expose this method and use their default TX timeout.
+  #if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+    Serial.setTxTimeoutMs(0);
+  #endif
   m5Preferences.begin("rubbertrack", false);
-  lcdOffAt = millis() + LCD_STARTUP_DURATION;
-  M5.Display.setBrightness(128);
+  lcdOffAt = l1WakeCycle ? 0 : millis() + LCD_STARTUP_DURATION;
+  M5.Display.setBrightness(l1WakeCycle ? 0 : 128);
 #else
   Serial.begin(115200);
   delay(1000);
@@ -140,7 +179,7 @@ void setup(){
 
 // I2C channel 1
   #if (BOARD == BOARD_ESP32_FEATHER) || (BOARD == BOARD_ESP32_LOLIND32) || (BOARD == BOARD_M5STICKS3)
-    Wire.begin(GPIOSDA,GPIOSCL); // initialize I2C w/ I2C pins from config
+  Wire.begin(GPIOSDA,GPIOSCL); // initialize I2C w/ I2C pins from config
   #else
     Wire.begin();
   #endif
@@ -204,6 +243,32 @@ void setup(){
   #endif
 #endif
 
+#if (BOARD == BOARD_M5STICKS3)
+  // PM1 and BMI270 are on the internal bus, separate from the MLX90640 bus.
+  internalSda = M5.getPin(m5::pin_name_t::in_i2c_sda);
+  internalScl = M5.getPin(m5::pin_name_t::in_i2c_scl);
+  if (pm1.begin(&M5.In_I2C, M5PM1_DEFAULT_ADDR, M5PM1_I2C_FREQ_100K) == M5PM1_OK) {
+    pm1Ready = true;
+    debug("M5PM1 initialized.\n");
+    uint8_t wakeSource = 0;
+    if (pm1.getWakeSource(&wakeSource, M5PM1_CLEAN_ONCE) == M5PM1_OK) {
+      l1WakeCycle = l1WakeCycle &&
+                    ((wakeSource & (M5PM1_WAKE_SRC_TIM | M5PM1_WAKE_SRC_EXT_WAKE)) != 0);
+      if (wakeSource & M5PM1_WAKE_SRC_TIM) debug("Wake source: L1 timer.\n");
+      if (wakeSource & M5PM1_WAKE_SRC_EXT_WAKE) debug("Wake source: motion.\n");
+    }
+    uint8_t clearMarker = 0;
+    pm1.writeRtcRAM(0, &clearMarker, 1);
+    pm1.timerClear();
+  } else {
+    debug("ERROR: M5PM1 not found; L1 power management disabled.\n");
+  }
+  if (!l1WakeCycle) {
+    lcdOffAt = millis() + LCD_STARTUP_DURATION;
+    M5.Display.setBrightness(128);
+  }
+#endif
+
 #if (BOARD == BOARD_ESP32_FEATHER)
   debug(F("\nStarting battery monitor:MAX17048"));
 
@@ -230,6 +295,16 @@ updateBattery();
 // BLE
   debug("Starting BLE device: %s\n", bleName);
   bleDevice.setupDevice(bleName);
+
+#if (BOARD == BOARD_M5STICKS3)
+  if (l1WakeCycle) {
+    l1BleWaitUntil = millis() + L1_BLE_WAIT_MS;
+    debug("L1 wake: display off, BLE wait 5 seconds.\n");
+  } else {
+    screenOffSleepPending = true;
+    debug("Normal boot: BLE wait until display off.\n");
+  }
+#endif
 
 // Set up periodic functions
 #ifdef _DEBUG
@@ -305,6 +380,43 @@ void loop() {
   }
 #endif
 
+#if (BOARD == BOARD_M5STICKS3)
+  bool bleConnected = bleDevice.isConnected();
+  if (l1WakeCycle) {
+    if (bleConnected) {
+      l1WakeCycle = false;
+      l1BleWaitUntil = 0;
+      bleWasConnected = true;
+    } else if (l1BleWaitUntil != 0 && (long)(millis() - l1BleWaitUntil) >= 0) {
+      l1BleWaitUntil = 0;
+      if (lcdOffAt == 0) {
+        enterM5L1();
+      } else {
+        // A button operation turned the display on during the 5-second
+        // wake-up window. Keep advertising until the display turns off.
+        l1WakeCycle = false;
+        screenOffSleepPending = true;
+        debug("L1 wake timeout: waiting until display off.\n");
+      }
+    }
+  } else {
+    if (bleConnected) {
+      bleWasConnected = true;
+      screenOffSleepPending = false;
+    } else {
+      if (bleWasConnected) {
+        bleWasConnected = false;
+        screenOffSleepPending = true;
+        debug("BLE disconnected: waiting until display off.\n");
+      }
+      if (screenOffSleepPending && lcdOffAt == 0) {
+        screenOffSleepPending = false;
+        enterM5L1();
+      }
+    }
+  }
+#endif
+
 // I2C channel 1
   #if (DIST_SENSOR != DIST_NONE)
     distSensor.measure();
@@ -346,6 +458,90 @@ void loop() {
 
   tasker.loop();
 }
+
+#if (BOARD == BOARD_M5STICKS3)
+bool detectM5L1WakeBeforeDisplay(void) {
+  // M5PM1 RTC RAM survives its shutdown; ESP32 RTC memory does not necessarily do so.
+  // Read it before M5.begin() so a timer/motion wake never turns the backlight on.
+  M5PM1 earlyPm1;
+  if (earlyPm1.begin(&Wire1, M5PM1_DEFAULT_ADDR, internalSda, internalScl,
+                     M5PM1_I2C_FREQ_100K) != M5PM1_OK) {
+    Wire1.end();
+    return false;
+  }
+  uint8_t marker = 0;
+  uint8_t wakeSource = 0;
+  bool isL1Wake = earlyPm1.readRtcRAM(0, &marker, 1) == M5PM1_OK &&
+                  earlyPm1.getWakeSource(&wakeSource, M5PM1_CLEAN_NONE) == M5PM1_OK &&
+                  marker == L1_RTC_MARKER &&
+                  (wakeSource & (M5PM1_WAKE_SRC_TIM | M5PM1_WAKE_SRC_EXT_WAKE));
+  Wire1.end();
+  return isL1Wake;
+}
+
+bool configureM5Wake(void) {
+  // Temporarily hand internal I2C1 from M5Unified to the BMI270 driver.
+  M5.In_I2C.release();
+  if (!Wire1.begin(internalSda, internalScl, 400000U)) {
+    M5.In_I2C.begin(I2C_NUM_1, internalSda, internalScl);
+    return false;
+  }
+  if (imu.beginI2C(BMI2_I2C_PRIM_ADDR, Wire1) != BMI2_OK) {
+    Wire1.end();
+    M5.In_I2C.begin(I2C_NUM_1, internalSda, internalScl);
+    return false;
+  }
+  bmi2_sens_config config;
+  memset(&config, 0, sizeof(config));
+  config.type = BMI2_ANY_MOTION;
+  int8_t ret = imu.enableFeature(BMI2_ANY_MOTION);
+  ret |= imu.getConfig(&config);
+  config.cfg.any_motion.threshold = MOTION_WAKE_THRESHOLD_LSB;
+  config.cfg.any_motion.duration = MOTION_WAKE_DURATION_LSB;
+  config.cfg.any_motion.select_x = BMI2_ENABLE;
+  config.cfg.any_motion.select_y = BMI2_ENABLE;
+  config.cfg.any_motion.select_z = BMI2_ENABLE;
+  ret |= imu.setConfig(config);
+  bmi2_int_pin_config pinConfig;
+  memset(&pinConfig, 0, sizeof(pinConfig));
+  pinConfig.pin_type = BMI2_INT1;
+  pinConfig.int_latch = BMI2_INT_NON_LATCH;
+  pinConfig.pin_cfg[0].lvl = BMI2_INT_ACTIVE_LOW;
+  pinConfig.pin_cfg[0].od = BMI2_INT_PUSH_PULL;
+  pinConfig.pin_cfg[0].output_en = BMI2_INT_OUTPUT_ENABLE;
+  pinConfig.pin_cfg[0].input_en = BMI2_INT_INPUT_DISABLE;
+  ret |= imu.setInterruptPinConfig(pinConfig);
+  ret |= imu.mapInterruptToPin(BMI2_ANY_MOTION_INT, BMI2_INT1);
+  imuReady = (ret == BMI2_OK);
+  Wire1.end();
+  M5.In_I2C.begin(I2C_NUM_1, internalSda, internalScl);
+  return imuReady;
+}
+
+void enterM5L1(void) {
+  if (!pm1Ready) {
+    debug("L1 entry skipped: M5PM1 is unavailable.\n");
+    return;
+  }
+  if (!configureM5Wake()) debug("WARNING: motion wake configuration failed.\n");
+  pm1.irqClearGpioAll();
+  pm1.irqClearSysAll();
+  pm1.irqClearBtnAll();
+  pm1.gpioSetMode(M5PM1_GPIO_NUM_4, M5PM1_GPIO_MODE_INPUT);
+  pm1.gpioSetPull(M5PM1_GPIO_NUM_4, M5PM1_GPIO_PULL_UP);
+  pm1.gpioSetWakeEdge(M5PM1_GPIO_NUM_4, M5PM1_GPIO_WAKE_FALLING);
+  pm1.gpioSetWakeEnable(M5PM1_GPIO_NUM_4, imuReady);
+  pm1.timerSet(L1_TIMER_SECONDS, M5PM1_TIM_ACTION_POWERON);
+  pm1.setLdoEnable(true);
+  pm1.ldoSetPowerHold(true); // Keep L1 (RTC/PM1 domain) alive during shutdown.
+  pm1.setLedEnLevel(false);
+  pm1.writeRtcRAM(0, &L1_RTC_MARKER, 1);
+  M5.Display.setBrightness(0);
+  debug("No BLE connection: entering L1 for 60 seconds.\n");
+  delay(50);
+  pm1.shutdown();
+}
+#endif
 
 #if (BOARD == BOARD_M5STICKS3)
 void updateM5StickDisplay(void) {
