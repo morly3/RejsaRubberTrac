@@ -66,6 +66,7 @@ void updateM5DisplayRotation(void);
 void enterM5L1(void);
 bool configureM5Wake(void);
 bool detectM5L1WakeBeforeDisplay(void);
+bool clearM5WakeSettings(M5PM1& controller);
 #endif
 
 #if (BOARD == BOARD_M5STICKS3)
@@ -77,8 +78,8 @@ unsigned long lcdOffAt = 0;
 unsigned long lastLcdRefresh = 0;
 uint8_t lcdSelection = 0;
 char wheelPositionBeforeSettings[3] = "  ";
-const uint32_t L1_TIMER_SECONDS = 60;
-const uint32_t L1_BLE_WAIT_MS = 1000;
+const uint32_t L1_TIMER_SECONDS = 120;
+const uint32_t L1_BLE_WAIT_MS = 5000;
 const uint8_t L1_RTC_MARKER = 0xA5;
 
 // Motion wake-up settings. Change these two values only.
@@ -100,6 +101,7 @@ bool bleWasConnected = false;
 bool screenOffSleepPending = false;
 bool pm1Ready = false;
 bool imuReady = false;
+bool earlyWakeSettingsCleared = false;
 int8_t internalSda = 47;
 int8_t internalScl = 48;
 #endif
@@ -250,6 +252,9 @@ void setup(){
   if (pm1.begin(&M5.In_I2C, M5PM1_DEFAULT_ADDR, M5PM1_I2C_FREQ_100K) == M5PM1_OK) {
     pm1Ready = true;
     debug("M5PM1 initialized.\n");
+    if (!earlyWakeSettingsCleared) {
+      debug("WARNING: early wake cleanup failed; retrying on the initialized bus.\n");
+    }
     uint8_t wakeSource = 0;
     if (pm1.getWakeSource(&wakeSource, M5PM1_CLEAN_ONCE) == M5PM1_OK) {
       l1WakeCycle = l1WakeCycle &&
@@ -259,7 +264,9 @@ void setup(){
     }
     uint8_t clearMarker = 0;
     pm1.writeRtcRAM(0, &clearMarker, 1);
-    pm1.timerClear();
+    if (!clearM5WakeSettings(pm1)) {
+      Serial.println("ERROR: wake cleanup failed; timer/motion wake or LDO hold may remain enabled.");
+    }
   } else {
     debug("ERROR: M5PM1 not found; L1 power management disabled.\n");
   }
@@ -460,6 +467,21 @@ void loop() {
 }
 
 #if (BOARD == BOARD_M5STICKS3)
+bool clearM5WakeSettings(M5PM1& controller) {
+  // PM1 settings outlive an ESP32 reset. Disarm them while running so a
+  // hardware double-click shutdown cannot reuse the previous L1 settings.
+  for (uint8_t attempt = 0; attempt < 3; ++attempt) {
+    // Attempt every operation even if an earlier I2C transaction failed.
+    const bool gpioCleared =
+        controller.gpioSetWakeEnable(M5PM1_GPIO_NUM_4, false) == M5PM1_OK;
+    const bool timerCleared = controller.timerClear() == M5PM1_OK;
+    const bool holdCleared = controller.ldoSetPowerHold(false) == M5PM1_OK;
+    if (gpioCleared && timerCleared && holdCleared) return true;
+    if (attempt < 2) delay(5);
+  }
+  return false;
+}
+
 bool detectM5L1WakeBeforeDisplay(void) {
   // M5PM1 RTC RAM survives its shutdown; ESP32 RTC memory does not necessarily do so.
   // Read it before M5.begin() so a timer/motion wake never turns the backlight on.
@@ -471,10 +493,14 @@ bool detectM5L1WakeBeforeDisplay(void) {
   }
   uint8_t marker = 0;
   uint8_t wakeSource = 0;
-  bool isL1Wake = earlyPm1.readRtcRAM(0, &marker, 1) == M5PM1_OK &&
-                  earlyPm1.getWakeSource(&wakeSource, M5PM1_CLEAN_NONE) == M5PM1_OK &&
+  const bool markerRead = earlyPm1.readRtcRAM(0, &marker, 1) == M5PM1_OK;
+  const bool sourceRead = earlyPm1.getWakeSource(&wakeSource, M5PM1_CLEAN_NONE) == M5PM1_OK;
+  bool isL1Wake = markerRead && sourceRead &&
                   marker == L1_RTC_MARKER &&
                   (wakeSource & (M5PM1_WAKE_SRC_TIM | M5PM1_WAKE_SRC_EXT_WAKE));
+  // Preserve the wake reason before disarming, and do this before M5.begin()
+  // or sensor initialization can delay handling a manual power-off.
+  earlyWakeSettingsCleared = clearM5WakeSettings(earlyPm1);
   Wire1.end();
   return isL1Wake;
 }
@@ -527,6 +553,9 @@ void enterM5L1(void) {
   pm1.irqClearGpioAll();
   pm1.irqClearSysAll();
   pm1.irqClearBtnAll();
+  // Do not let the power-button click/double-click event immediately
+  // wake the PM1 after shutdown. Motion and timer wake remain enabled.
+  pm1.irqSetBtnMaskAll(M5PM1_IRQ_MASK_ENABLE);
   pm1.gpioSetMode(M5PM1_GPIO_NUM_4, M5PM1_GPIO_MODE_INPUT);
   pm1.gpioSetPull(M5PM1_GPIO_NUM_4, M5PM1_GPIO_PULL_UP);
   pm1.gpioSetWakeEdge(M5PM1_GPIO_NUM_4, M5PM1_GPIO_WAKE_FALLING);
@@ -537,7 +566,7 @@ void enterM5L1(void) {
   pm1.setLedEnLevel(false);
   pm1.writeRtcRAM(0, &L1_RTC_MARKER, 1);
   M5.Display.setBrightness(0);
-  debug("No BLE connection: entering L1 for 60 seconds.\n");
+  debug("No BLE connection: entering L1 for %lu seconds.\n", (unsigned long)L1_TIMER_SECONDS);
   delay(50);
   pm1.shutdown();
 }
